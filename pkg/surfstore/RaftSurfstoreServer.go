@@ -128,6 +128,12 @@ func (s *RaftSurfstore) GetBlockStoreAddr(ctx context.Context, empty *emptypb.Em
 
 func (s *RaftSurfstore) UpdateFile(ctx context.Context, filemeta *FileMetaData) (*Version, error) {
 	// fmt.Println("Entered Update File")
+	if s.isCrashed{
+		return nil, ERR_SERVER_CRASHED
+	}
+	if !s.isLeader{
+		return nil, ERR_NOT_LEADER
+	}
 	opr := UpdateOperation{
         Term: s.term,
         FileMetaData: filemeta,
