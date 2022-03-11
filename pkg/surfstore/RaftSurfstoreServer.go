@@ -25,10 +25,9 @@ type RaftSurfstore struct {
 	term     int64
 	log      []*UpdateOperation
 	commitIndex int64
-	pendingReplicas []chan bool
+	pendingReplicas [50]chan bool
 	lastApplied int64
 	nextIndex []int64
-	successfulReplication chan bool
 	
 	metaStore *MetaStore
 
@@ -141,11 +140,11 @@ func (s *RaftSurfstore) UpdateFile(ctx context.Context, filemeta *FileMetaData) 
         FileMetaData: filemeta,
     }
     s.log = append(s.log, &opr)
-	replicated := make(chan bool)
-	s.pendingReplicas = append(s.pendingReplicas, replicated)
+	// replicated := make(chan bool)
+	// s.pendingReplicas = append(s.pendingReplicas, replicated)
 	go s.AttemptReplication()
-
-    success := <-replicated // even heartbeat can send value here
+	replicated := s.pendingReplicas[s.commitIndex+1] 
+    success := <- replicated// even heartbeat can send value here
 	if success { // block until successful
 		log.Printf("Server%v: Successful in UpdateFile\n", s.serverId)
 		// log.Println("Received success in replication")
@@ -184,13 +183,13 @@ func (s *RaftSurfstore) AttemptReplication(){ // returns true when replication e
 		if rep!=nil && rep.Success{
 			replicateCount++
 			nodesProbed++
-		} else { nodesProbed++ } // if crashed then also return to channel
-		if replicateCount > len(s.ipList)/2{ 
-			log.Printf("Server%v: Received Majority Replica with targetIdx=%v\n", s.serverId,targetIdx)
-			s.pendingReplicas[targetIdx] <- true // no need to signal second time otherwise will block
-			s.commitIndex = targetIdx // dont break so that we can reuse for heartbeat; updatefile is already signalled	
-			break
-		}		
+		} else { nodesProbed++ } // if crashed then also return to channel		
+	}
+	if replicateCount > len(s.ipList)/2{ 
+		log.Printf("Server%v: Received Majority Replica with targetIdx=%v\n", s.serverId,targetIdx)
+		s.pendingReplicas[targetIdx] <- true // no need to signal second time otherwise will block
+		s.commitIndex = targetIdx // dont break so that we can reuse for heartbeat; updatefile is already signalled	
+		// break
 	}
 	log.Printf("Server%v: Exiting Attempt Replication\n", s.serverId)
 	// log.Println("Exiting Attempt Replication with targetId: ", targetIdx)
@@ -347,7 +346,7 @@ func (s *RaftSurfstore) AppendEntries(ctx context.Context, input *AppendEntryInp
 		output.MatchedIndex = int64(len(s.log)-1)
 	}
 	// log.Println("exited append operation")
-	// if input.LeaderCommit > s.commitIndex {
+	if input.LeaderCommit > s.commitIndex {
 		log.Printf("Server%v: AppendEntry had LeaderCommit %v and lastLogIndex %v\n", s.serverId, input.LeaderCommit, len(s.log)-1)
 		s.commitIndex = int64(math.Min(float64(input.LeaderCommit), float64(len(s.log)-1)))
 		for s.lastApplied < s.commitIndex{ // no need to check for updateFile errors because leader would have commited only if there are no errors
@@ -356,7 +355,7 @@ func (s *RaftSurfstore) AppendEntries(ctx context.Context, input *AppendEntryInp
 			s.metaStore.UpdateFile(ctx, entry.FileMetaData)
 		}
 		log.Printf("Server%v: AppendEntry set commitIndex as %v\n", s.serverId, s.commitIndex)
-	// }
+	}
 	// log.Printf("Exiting AppendEntries\n")
 	return output, nil
 }
@@ -371,6 +370,7 @@ func (s *RaftSurfstore) SetLeader(ctx context.Context, _ *emptypb.Empty) (*Succe
 	} else {
 		s.term++
 		s.isLeader = true
+		log.Printf("Server%v: New Leader having commitIndex %v and log %v\n",s.serverId, s.commitIndex, s.log)
 		for i:=0; i<len(s.ipList); i++{
 			s.nextIndex[i] = int64(len(s.log))
 		}

@@ -105,15 +105,17 @@ func TestRaftFollowersGetUpdates(t *testing.T) {
 		FileMetaData: filemeta1,
 	})
 
-	for _, server := range test.Clients {
+	for id, server := range test.Clients {
 		state, _ := server.GetInternalState(test.Context, &emptypb.Empty{})
 		if !SameLog(goldenLog, state.Log) {
+			t.Log(id)
             t.Log(state.Log)
 			t.Log("Logs do not match")
 			t.Fail()
 		}
 		if !SameMeta(goldenMeta.FileMetaMap, state.MetaMap.FileInfoMap) {
-            t.Log(state.MetaMap.FileInfoMap)
+            t.Log(id)
+			t.Log(state.MetaMap.FileInfoMap)
 			t.Log("MetaStore state is not correct")
 			t.Fail()
 		}
