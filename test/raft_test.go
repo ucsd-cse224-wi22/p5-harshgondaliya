@@ -1,7 +1,7 @@
 package SurfTest
 
 import (
-	context "context"
+	// context "context"
 	"cse224/proj5/pkg/surfstore"
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
 	"testing"
@@ -16,7 +16,8 @@ func TestRaftSetLeader(t *testing.T) {
 	// TEST
 	leaderIdx := 0
 	test.Clients[leaderIdx].SetLeader(test.Context, &emptypb.Empty{})
-
+	test.Clients[leaderIdx].SendHeartbeat(test.Context, &emptypb.Empty{})
+	
 	// heartbeat
 	for _, server := range test.Clients {
 		server.SendHeartbeat(test.Context, &emptypb.Empty{})
@@ -46,7 +47,7 @@ func TestRaftSetLeader(t *testing.T) {
 
 	leaderIdx = 2
 	test.Clients[leaderIdx].SetLeader(test.Context, &emptypb.Empty{})
-
+	test.Clients[leaderIdx].SendHeartbeat(test.Context, &emptypb.Empty{})
 	// heartbeat
 	for _, server := range test.Clients {
 		server.SendHeartbeat(test.Context, &emptypb.Empty{})
@@ -56,6 +57,7 @@ func TestRaftSetLeader(t *testing.T) {
 		// all should have the leaders term
 		state, _ := server.GetInternalState(test.Context, &emptypb.Empty{})
 		if state.Term != int64(2) {
+			t.Logf("ServerId: %d", idx)
 			t.Logf("Server should be in term %d", 2)
 			t.Fail()
 		}
@@ -84,6 +86,7 @@ func TestRaftFollowersGetUpdates(t *testing.T) {
 	// TEST
 	leaderIdx := 0
 	test.Clients[leaderIdx].SetLeader(test.Context, &emptypb.Empty{})
+	test.Clients[leaderIdx].SendHeartbeat(test.Context, &emptypb.Empty{})
 
 	filemeta1 := &surfstore.FileMetaData{
 		Filename:      "testFile1",
@@ -91,7 +94,8 @@ func TestRaftFollowersGetUpdates(t *testing.T) {
 		BlockHashList: nil,
 	}
 
-	test.Clients[leaderIdx].UpdateFile(context.Background(), filemeta1)
+	test.Clients[leaderIdx].UpdateFile(test.Context, filemeta1)
+	test.Clients[leaderIdx].SendHeartbeat(test.Context, &emptypb.Empty{})
 
 	goldenMeta := surfstore.NewMetaStore("")
 	goldenMeta.UpdateFile(test.Context, filemeta1)
@@ -104,10 +108,12 @@ func TestRaftFollowersGetUpdates(t *testing.T) {
 	for _, server := range test.Clients {
 		state, _ := server.GetInternalState(test.Context, &emptypb.Empty{})
 		if !SameLog(goldenLog, state.Log) {
+            t.Log(state.Log)
 			t.Log("Logs do not match")
 			t.Fail()
 		}
 		if !SameMeta(goldenMeta.FileMetaMap, state.MetaMap.FileInfoMap) {
+            t.Log(state.MetaMap.FileInfoMap)
 			t.Log("MetaStore state is not correct")
 			t.Fail()
 		}

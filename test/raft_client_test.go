@@ -14,7 +14,7 @@ func TestSyncTwoClientsSameFileLeaderFailure(t *testing.T) {
 	test := InitTest(cfgPath, "8080")
 	defer EndTest(test)
 	test.Clients[0].SetLeader(test.Context, &emptypb.Empty{})
-
+	test.Clients[0].SendHeartbeat(test.Context, &emptypb.Empty{}) // edited
 	worker1 := InitDirectoryWorker("test0", SRC_PATH)
 	worker2 := InitDirectoryWorker("test1", SRC_PATH)
 	defer worker1.CleanUp()
@@ -42,6 +42,7 @@ func TestSyncTwoClientsSameFileLeaderFailure(t *testing.T) {
 		t.Fatalf("Sync failed")
 	}
 
+	test.Clients[0].SendHeartbeat(test.Context, &emptypb.Empty{}) // edited
 	test.Clients[0].Crash(test.Context, &emptypb.Empty{})
 	test.Clients[1].SetLeader(test.Context, &emptypb.Empty{})
 	test.Clients[1].SendHeartbeat(test.Context, &emptypb.Empty{})
@@ -51,12 +52,14 @@ func TestSyncTwoClientsSameFileLeaderFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Sync failed")
 	}
+	test.Clients[1].SendHeartbeat(test.Context, &emptypb.Empty{})
 
 	//client1 syncs
 	err = SyncClient("localhost:8080", "test0", BLOCK_SIZE, cfgPath)
 	if err != nil {
 		t.Fatalf("Sync failed")
 	}
+	test.Clients[1].SendHeartbeat(test.Context, &emptypb.Empty{})
 
 	workingDir, _ := os.Getwd()
 

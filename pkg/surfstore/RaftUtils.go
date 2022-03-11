@@ -2,15 +2,20 @@ package surfstore
 
 import (
 	"bufio"
+	"net"
 	//	"google.golang.org/grpc"
 	"io"
 	"log"
+
 	//	"net"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
+
+	"google.golang.org/grpc"
 )
+const SURF_CLIENT string = "[Surfstore RPCClient]:"
 
 func LoadRaftConfigFile(filename string) (ipList []string) {
 	configFD, e := os.Open(filename)
@@ -41,21 +46,28 @@ func LoadRaftConfigFile(filename string) (ipList []string) {
 			ipList[index-1] = splitRes[1]
 		}
 	}
-
 	return
 }
 
 func NewRaftServer(id int64, ips []string, blockStoreAddr string) (*RaftSurfstore, error) {
 	// TODO any initialization you need to do here
-
+	nextId := make([]int64, len(ips))
 	isCrashedMutex := sync.RWMutex{}
 
 	server := RaftSurfstore{
 		// TODO initialize any fields you add here
+		serverId: 		id,
+		ip:				ips[id],
+		ipList: 		ips,
 		isLeader:       false,
+		pendingReplicas: make([]chan bool, 0),
 		term:           0,
 		metaStore:      NewMetaStore(blockStoreAddr),
 		log:            make([]*UpdateOperation, 0),
+		commitIndex: 	-1,
+		lastApplied: 	-1,
+		successfulReplication: make(chan bool),
+		nextIndex: 		nextId,
 		isCrashed:      false,
 		notCrashedCond: sync.NewCond(&isCrashedMutex),
 		isCrashedMutex: isCrashedMutex,
@@ -66,6 +78,12 @@ func NewRaftServer(id int64, ips []string, blockStoreAddr string) (*RaftSurfstor
 
 // TODO Start up the Raft server and any services here
 func ServeRaftServer(server *RaftSurfstore) error {
-	panic("todo")
-	return nil
+	grpcServer := grpc.NewServer()
+	RegisterRaftSurfstoreServer(grpcServer, server)
+	// Start listening and serving
+	lis, err := net.Listen("tcp", server.ip)
+	if err != nil {
+		return err
+	}
+	return grpcServer.Serve(lis)
 }
