@@ -61,7 +61,8 @@ func (s *RaftSurfstore) GetFileInfoMap(ctx context.Context, empty *emptypb.Empty
 					client := NewRaftSurfstoreClient(conn)
 					ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 					defer cancel() // Since term is -1 we want to always return false `append` entry if server is not crashed
-					_, err := client.AppendEntries(ctx, &AppendEntryInput{Term: s.term, PrevLogIndex: -1, PrevLogTerm: -1, Entries: []*UpdateOperation{}, LeaderCommit: s.commitIndex})
+					entries := make([]*UpdateOperation, 0)
+					_, err := client.AppendEntries(ctx, &AppendEntryInput{Term: s.term, PrevLogIndex: -1, PrevLogTerm: -1, Entries: entries, LeaderCommit: s.commitIndex})
 					if err!= nil && strings.Contains(err.Error(), STR_SERVER_CRASHED){
 						conn.Close()
 						return
@@ -106,7 +107,8 @@ func (s *RaftSurfstore) GetBlockStoreAddr(ctx context.Context, empty *emptypb.Em
 					ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 					// log.Println("ctc created")
 					defer cancel() // TO DO: what log to send
-					_, err := client.AppendEntries(ctx, &AppendEntryInput{Term: s.term, PrevLogIndex: -1, PrevLogTerm: -1, Entries: []*UpdateOperation{}, LeaderCommit: s.commitIndex})
+					entries := make([]*UpdateOperation, 0)
+					_, err := client.AppendEntries(ctx, &AppendEntryInput{Term: s.term, PrevLogIndex: -1, PrevLogTerm: -1, Entries: entries, LeaderCommit: s.commitIndex})
 					// log.Println("cleared appendEntries")
 					if err!=nil && strings.Contains(err.Error(), STR_SERVER_CRASHED){
 						conn.Close()
@@ -146,7 +148,6 @@ func (s *RaftSurfstore) UpdateFile(ctx context.Context, filemeta *FileMetaData) 
     success := <- replicated// even heartbeat can send value here
 	if success { // block until successful
 		log.Printf("Server%v: Successful in UpdateFile\n", s.serverId)
-		// log.Println("Received success in replication")
 		for s.lastApplied < s.commitIndex{ // no need to check for updateFile errors because leader would have commited only if there are no errors
 			s.lastApplied++
 			entry := s.log[s.lastApplied]
@@ -161,10 +162,7 @@ func (s *RaftSurfstore) UpdateFile(ctx context.Context, filemeta *FileMetaData) 
 }
 
 func (s *RaftSurfstore) AttemptReplication(){ // returns true when replication equal to leaders log is done at majority of servers
-	targetIdx := int64(len(s.log)-1)
-	if targetIdx < 0{
-		targetIdx = 0
-	}
+	targetIdx := s.commitIndex+1
 	log.Printf("Server%v: AttemptReplication with targetIdx=%v\n", s.serverId,targetIdx)
 	// var targetIdx int64
 	// var heartbeat bool
@@ -190,7 +188,7 @@ func (s *RaftSurfstore) AttemptReplication(){ // returns true when replication e
 			return
 		}
 		if nodesProbed >= len(s.ipList){
-			break
+			return
 		}
 		rep := <-replicateChan
 		if rep!=nil && rep.Success{
@@ -205,11 +203,11 @@ func (s *RaftSurfstore) AttemptReplication(){ // returns true when replication e
 		}
 	}
 	log.Printf("Server%v: Exiting Attempt Replication\n", s.serverId)
-	// log.Println("Exiting Attempt Replication with targetId: ", targetIdx)
 }
 func (s *RaftSurfstore) Replicate(followerId, entryId int64, replicateChan chan *AppendEntryOutput) {
 	for {
 		if s.isCrashed{
+			replicateChan <- &AppendEntryOutput{ServerId: -1, Term: s.term, Success: false, MatchedIndex: -1}
 			return
 		}
 		log.Printf("Server%v: Entered Replicate with entryId %v and nextId %v\n", s.serverId, entryId,s.nextIndex[followerId])
@@ -221,12 +219,13 @@ func (s *RaftSurfstore) Replicate(followerId, entryId int64, replicateChan chan 
 		}
 		client := NewRaftSurfstoreClient(conn)
 		var input *AppendEntryInput
+		emptyEntries := make([]*UpdateOperation,0)
 		if int(entryId) >= len(s.log){ // just send a heartbeat to trigger commit
 			input = &AppendEntryInput{
 				Term: s.term,
 				PrevLogTerm: -1,
 				PrevLogIndex: -1,
-				Entries: []*UpdateOperation{}, // nothing to be sent
+				Entries: emptyEntries, // nothing to be sent
 				LeaderCommit: s.commitIndex,
 			}
 		} else{
@@ -244,7 +243,7 @@ func (s *RaftSurfstore) Replicate(followerId, entryId int64, replicateChan chan 
 						Term: s.term,
 						PrevLogTerm: -1,
 						PrevLogIndex: -1,
-						Entries: []*UpdateOperation{},
+						Entries: emptyEntries,
 						LeaderCommit: s.commitIndex,
 					}
 				}
@@ -254,7 +253,7 @@ func (s *RaftSurfstore) Replicate(followerId, entryId int64, replicateChan chan 
 						Term: s.term,
 						PrevLogTerm: s.log[s.nextIndex[followerId]-1].Term,
 						PrevLogIndex: s.nextIndex[followerId]-1,
-						Entries: []*UpdateOperation{}, // nothing to be sent
+						Entries: emptyEntries, // nothing to be sent
 						LeaderCommit: s.commitIndex,
 					}	
 				} else {
@@ -271,7 +270,7 @@ func (s *RaftSurfstore) Replicate(followerId, entryId int64, replicateChan chan 
 							Term: s.term,
 							PrevLogTerm: s.log[s.nextIndex[followerId]-1].Term,
 							PrevLogIndex: s.nextIndex[followerId]-1,
-							Entries: []*UpdateOperation{},
+							Entries: emptyEntries,
 							LeaderCommit: s.commitIndex,
 						}
 					}
