@@ -53,17 +53,13 @@ func NewRaftServer(id int64, ips []string, blockStoreAddr string) (*RaftSurfstor
 	// TODO any initialization you need to do here
 	nextId := make([]int64, len(ips))
 	isCrashedMutex := sync.RWMutex{}
-	var chans [50]chan bool
-	for i := range chans {
-		chans[i] = make(chan bool)
-	}
 	server := RaftSurfstore{
 		// TODO initialize any fields you add here
 		serverId: 		id,
 		ip:				ips[id],
 		ipList: 		ips,
 		isLeader:       false,
-		pendingReplicas: chans,
+		pendingReplicas: make([]chan bool, 0),
 		term:           0,
 		metaStore:      NewMetaStore(blockStoreAddr),
 		log:            make([]*UpdateOperation, 0),

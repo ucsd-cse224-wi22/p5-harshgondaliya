@@ -11,7 +11,7 @@ func main() {
 	serverId := flag.Int64("i", -1, "(required) Server ID")
 	configFile := flag.String("f", "", "(required) Config file, absolute path")
 	blockStoreAddr := flag.String("b", "", "(required) BlockStore address")
-	debug := flag.Bool("d", true, "Output log statements")
+	debug := flag.Bool("d", false, "Output log statements")
 	flag.Parse()
 
 	addrs := surfstore.LoadRaftConfigFile(*configFile)
