@@ -370,7 +370,11 @@ func (s *RaftSurfstore) AppendEntries(ctx context.Context, input *AppendEntryInp
 	// log.Println("exited append operation")
 	if input.LeaderCommit > s.commitIndex {
 		log.Printf("Server%v: AppendEntry had LeaderCommit %v and lastLogIndex %v\n", s.serverId, input.LeaderCommit, len(s.log)-1)
-		s.commitIndex = int64(math.Min(float64(input.LeaderCommit), float64(len(s.log)-1)))
+		lastLogIndex := len(s.log)-1
+		if lastLogIndex == -1 {
+			lastLogIndex = 0
+		}
+		s.commitIndex = int64(math.Min(float64(input.LeaderCommit), float64(lastLogIndex)))
 		for s.lastApplied < s.commitIndex{ // no need to check for updateFile errors because leader would have commited only if there are no errors
 			s.lastApplied++
 			entry := s.log[s.lastApplied]
