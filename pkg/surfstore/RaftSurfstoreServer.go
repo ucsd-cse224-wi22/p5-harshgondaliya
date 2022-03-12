@@ -303,7 +303,7 @@ func (s *RaftSurfstore) Replicate(followerId, entryId int64, replicateChan chan 
 				return // added to handle crashed nodes
 			}
 		} 
-		if err!= nil && !(strings.Contains(err.Error(), STR_SERVER_CRASHED)){
+		if err!= nil && (strings.Contains(err.Error(), STR_SERVER_CRASHED)){
 			replicateChan <- &AppendEntryOutput{ServerId: s.serverId, Term: s.term, Success: false, MatchedIndex: -1}
 			return // added to handle crashed nodes
 		}
@@ -369,13 +369,16 @@ func (s *RaftSurfstore) AppendEntries(ctx context.Context, input *AppendEntryInp
 	}
 	// log.Println("exited append operation")
 	if input.LeaderCommit > s.commitIndex {
-		log.Printf("Server%v: AppendEntry had LeaderCommit %v and lastLogIndex %v\n", s.serverId, input.LeaderCommit, len(s.log)-1)
+		log.Printf("Server%v: AppendEntry had s.commitIndex %v LeaderCommit %v and lastLogIndex %v\n", s.commitIndex, s.serverId, input.LeaderCommit, len(s.log)-1)
 		lastLogIndex := len(s.log)-1
 		if lastLogIndex == -1 {
 			lastLogIndex = 0
 		}
 		s.commitIndex = int64(math.Min(float64(input.LeaderCommit), float64(lastLogIndex)))
 		for s.lastApplied < s.commitIndex{ // no need to check for updateFile errors because leader would have commited only if there are no errors
+			if(int(s.commitIndex) > len(s.log)-1){
+				break
+			}
 			s.lastApplied++
 			entry := s.log[s.lastApplied]
 			s.metaStore.UpdateFile(ctx, entry.FileMetaData)
