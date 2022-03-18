@@ -3,9 +3,6 @@ package surfstore
 import (
 	context "context"
 	"log"
-
-	// "fmt"
-	// "fmt"
 	"math"
 	"strings"
 	"sync"
@@ -220,22 +217,28 @@ func (s *RaftSurfstore) Replicate(followerId, entryId int64, replicateChan chan 
 		client := NewRaftSurfstoreClient(conn)
 		var input *AppendEntryInput
 		emptyEntries := make([]*UpdateOperation,0)
-		if int(entryId) >= len(s.log){ // just send a heartbeat to trigger commit
-			input = &AppendEntryInput{
-				Term: s.term,
-				PrevLogTerm: -1,
-				PrevLogIndex: -1,
-				Entries: emptyEntries, // nothing to be sent
-				LeaderCommit: s.commitIndex,
-			}
-		} else{
+		var endId int64
+		if int(entryId) >= len(s.log){
+			endId = int64(len(s.log))
+		} else {
+			endId = entryId+1
+		}
+		// if int(entryId) >= len(s.log){ // just send a heartbeat to trigger commit
+		// 	input = &AppendEntryInput{
+		// 		Term: s.term,
+		// 		PrevLogTerm: -1,
+		// 		PrevLogIndex: -1,
+		// 		Entries: emptyEntries, // nothing to be sent
+		// 		LeaderCommit: s.commitIndex,
+		// 	}
+		//} else{
 			if s.nextIndex[followerId] == 0{ // either initial stage or reached here after decrementation
 				if len(s.log) != 0{ // something has been updated to the server 
 					input = &AppendEntryInput{ // can be treated as heartbeat without any entries; but for case when log is empty
 						Term: s.term,
 						PrevLogTerm: -1,
 						PrevLogIndex: -1,
-						Entries: s.log[s.nextIndex[followerId]:entryId+1],
+						Entries: s.log[s.nextIndex[followerId]:endId],
 						LeaderCommit: s.commitIndex,
 					}
 				}else {
@@ -262,7 +265,7 @@ func (s *RaftSurfstore) Replicate(followerId, entryId int64, replicateChan chan 
 							Term: s.term,
 							PrevLogTerm: s.log[s.nextIndex[followerId]-1].Term,
 							PrevLogIndex: s.nextIndex[followerId]-1,
-							Entries: s.log[s.nextIndex[followerId]:entryId+1],
+							Entries: s.log[s.nextIndex[followerId]:endId],
 							LeaderCommit: s.commitIndex,
 						}		
 					} else {
@@ -276,7 +279,7 @@ func (s *RaftSurfstore) Replicate(followerId, entryId int64, replicateChan chan 
 					}
 				}
 			}	
-		}
+	//	}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		log.Printf("Server%v: Sending input:\n", s.serverId)
@@ -298,7 +301,7 @@ func (s *RaftSurfstore) Replicate(followerId, entryId int64, replicateChan chan 
 			s.nextIndex[followerId]--
 			if s.nextIndex[followerId] < 0{ // I dont think we wlil ever enter here
 				s.nextIndex[followerId] = 0 // this basically means i need to send him everything 
-				replicateChan <- &AppendEntryOutput{ServerId: -1, Term: s.term, Success: false, MatchedIndex: -1}
+				replicateChan <- &AppendEntryOutput{ServerId: s.serverId, Term: s.term, Success: false, MatchedIndex: -1}
 				conn.Close()
 				return // added to handle crashed nodes
 			}
@@ -368,17 +371,17 @@ func (s *RaftSurfstore) AppendEntries(ctx context.Context, input *AppendEntryInp
 		output.MatchedIndex = int64(len(s.log)-1)
 	}
 	// log.Println("exited append operation")
-	if input.LeaderCommit > s.commitIndex {
+	if (input.LeaderCommit > s.commitIndex){
 		log.Printf("Server%v: AppendEntry had s.commitIndex %v LeaderCommit %v and lastLogIndex %v\n", s.commitIndex, s.serverId, input.LeaderCommit, len(s.log)-1)
 		lastLogIndex := len(s.log)-1
 		if lastLogIndex == -1 {
 			lastLogIndex = 0
 		}
+		temp := int64(math.Min(float64(input.LeaderCommit), float64(lastLogIndex)))
+		if int(temp) >= len(s.log){ return output, nil}
 		s.commitIndex = int64(math.Min(float64(input.LeaderCommit), float64(lastLogIndex)))
 		for s.lastApplied < s.commitIndex{ // no need to check for updateFile errors because leader would have commited only if there are no errors
-			if(int(s.commitIndex) > len(s.log)-1){
-				break
-			}
+			//fmt.Println("hi")
 			s.lastApplied++
 			entry := s.log[s.lastApplied]
 			s.metaStore.UpdateFile(ctx, entry.FileMetaData)
